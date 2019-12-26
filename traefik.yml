@@ -1,0 +1,30 @@
+# Traefik static configuration
+
+log:
+    level: ERROR
+
+# Traefik Dashboard
+api:
+    insecure: true
+    dashboard: true
+
+entryPoints:
+    web:
+        address: ":80"
+    web-secure:
+        address: ":443"
+
+providers:
+    docker:
+        endpoint: "unix:///var/run/docker.sock"
+        exposedByDefault: false
+        network: traefiknetwork
+
+certificatesResolvers:
+    letsencrypt:
+        acme: 
+            email: sergio.chumacero.fi@gmail.com
+            storage: acme.json
+            caServer: https://acme-staging-v02.api.letsencrypt.org/directory
+            httpChallenge:
+                entryPoint: web

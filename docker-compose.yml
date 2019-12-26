@@ -1,0 +1,72 @@
+# Docker Compose .yml version
+version: '3.7' # Requies Docker Engine version 18.06.0+
+
+services:
+    # TTYD: Share Terminal over the Web (DANGEROUS!)
+    ttyd:
+        container_name: ttyd
+        hostname: ttyd
+        image: tsl0922/ttyd:1.5.2-alpine # official, latest, fixed, lightweight
+        env_file: &env 
+            - config.env
+        restart: unless-stopped
+        depends_on: 
+            - traefik
+        networks: 
+            - traefiknetwork
+        expose:
+            - 7681
+        labels: # Traefik dynamic configuration
+            # Routing
+            - "traefik.enable=true"
+            - "traefik.http.services.ttyd_service.loadbalancer.server.port=7681"
+            - "traefik.http.routers.ttyd_router.service=ttyd_service"
+            - "traefik.http.routers.ttyd_router.rule=Host(`ttyd.aaps-staging.ml`)"
+            # Basic Auth
+            - "traefik.http.middlewares.ttyd_auth.basicauth.users=test:$$apr1$$ByKqrowX$$/qXsDKD4fsy7gvojaxbrU."
+            - "traefik.http.routers.ttyd_router.middlewares=ttyd_auth@docker"
+            # TLS
+            - "traefik.http.routers.ttyd_router.entrypoints=web-secure"
+            - "traefik.http.routers.ttyd_router.tls=true"
+            - "traefik.http.routers.ttyd_router.tls.certresolver=letsencrypt"
+        volumes:
+            - /etc/localtime:/etc/localtime:ro
+
+    # Traefik: Docker-aware Reverse Proxy
+    traefik:
+        container_name: traefik
+        hostname: traefik
+        image: traefik:2.1.0 # official, V2, fixed
+        env_file: *env
+        restart: unless-stopped
+        networks: 
+            - traefiknetwork
+        ports:
+            - 80:80
+            - 443:443
+        expose:
+            - 8080
+        labels: # Traefik dynamic configuration
+            # Routing
+            - "traefik.enable=true"
+            - "traefik.http.services.traefik_dashboard_service.loadbalancer.server.port=8080"
+            - "traefik.http.routers.traefik_dashboard_router.service=traefik_dashboard_service"
+            - "traefik.http.routers.traefik_dashboard_router.rule=Host(`traefik.aaps-staging.ml`)"
+            # Basic Auth
+            - "traefik.http.middlewares.traefik_dashboard_auth.basicauth.users=test:$$apr1$$ByKqrowX$$/qXsDKD4fsy7gvojaxbrU."
+            - "traefik.http.routers.traefik_dashboard_router.middlewares=traefik_dashboard_auth@docker"
+            # TLS
+            - "traefik.http.routers.traefik_dashboard_router.entrypoints=web-secure"
+            - "traefik.http.routers.traefik_dashboard_router.tls=true"
+            - "traefik.http.routers.traefik_dashboard_router.tls.certresolver=letsencrypt"
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+            - ./traefik.yml:/traefik.yml:ro
+            - /var/:/var/acme.json
+
+
+networks: 
+    traefiknetwork:
+        driver: bridge
+
+
