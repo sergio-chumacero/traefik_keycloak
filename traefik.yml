@@ -21,10 +21,9 @@ providers:
         network: traefiknetwork
 
 certificatesResolvers:
-    letsencrypt:
+    letsencrypt: # Name of certresolver
         acme: 
             email: sergio.chumacero.fi@gmail.com
-            storage: acme.json
-            caServer: https://acme-staging-v02.api.letsencrypt.org/directory
-            httpChallenge:
-                entryPoint: web
+            storage: acme.json # Location in containter: /acme.json
+            # caServer: https://acme-staging-v02.api.letsencrypt.org/directory # Staging LE Service
+            tlsChallenge: {}

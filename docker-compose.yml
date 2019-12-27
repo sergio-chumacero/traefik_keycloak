@@ -2,7 +2,7 @@
 version: '3.7' # Requies Docker Engine version 18.06.0+
 
 services:
-    # TTYD: Share Terminal over the Web (DANGEROUS!)
+    # TTYD: Share Terminal over the Web (DANGEROUS! Requires authentication.)
     ttyd:
         container_name: ttyd
         hostname: ttyd
@@ -12,23 +12,23 @@ services:
         restart: unless-stopped
         depends_on: 
             - traefik
-        networks: 
+        networks: # Connection to Traefik
             - traefiknetwork
-        expose:
+        expose: # Not public, only internal
             - 7681
         labels: # Traefik dynamic configuration
             # Routing
             - "traefik.enable=true"
             - "traefik.http.services.ttyd_service.loadbalancer.server.port=7681"
             - "traefik.http.routers.ttyd_router.service=ttyd_service"
-            - "traefik.http.routers.ttyd_router.rule=Host(`ttyd.aaps-staging.ml`)"
+            - "traefik.http.routers.ttyd_router.rule=Host(`ttyd.aaps-hub.ml`)"
             # Basic Auth
             - "traefik.http.middlewares.ttyd_auth.basicauth.users=test:$$apr1$$ByKqrowX$$/qXsDKD4fsy7gvojaxbrU."
             - "traefik.http.routers.ttyd_router.middlewares=ttyd_auth@docker"
-            # TLS
-            - "traefik.http.routers.ttyd_router.entrypoints=web-secure"
+            # TLS (Enable HTTPS)
+            - "traefik.http.routers.ttyd_router.entrypoints=web-secure" # HTTPS EntryPoint must be declared in static conf
             - "traefik.http.routers.ttyd_router.tls=true"
-            - "traefik.http.routers.ttyd_router.tls.certresolver=letsencrypt"
+            - "traefik.http.routers.ttyd_router.tls.certresolver=letsencrypt" # CertResolver must be declared in static conf
         volumes:
             - /etc/localtime:/etc/localtime:ro
 
@@ -41,29 +41,26 @@ services:
         restart: unless-stopped
         networks: 
             - traefiknetwork
-        ports:
+        ports: # Public ports (Standard for HTTP/HTTPS)
             - 80:80
             - 443:443
-        expose:
-            - 8080
         labels: # Traefik dynamic configuration
             # Routing
             - "traefik.enable=true"
             - "traefik.http.services.traefik_dashboard_service.loadbalancer.server.port=8080"
             - "traefik.http.routers.traefik_dashboard_router.service=traefik_dashboard_service"
-            - "traefik.http.routers.traefik_dashboard_router.rule=Host(`traefik.aaps-staging.ml`)"
-            # Basic Auth
+            - "traefik.http.routers.traefik_dashboard_router.rule=Host(`traefik.aaps-hub.ml`)"
+            # Basic Auth (htpasswd encoded)
             - "traefik.http.middlewares.traefik_dashboard_auth.basicauth.users=test:$$apr1$$ByKqrowX$$/qXsDKD4fsy7gvojaxbrU."
             - "traefik.http.routers.traefik_dashboard_router.middlewares=traefik_dashboard_auth@docker"
             # TLS
-            - "traefik.http.routers.traefik_dashboard_router.entrypoints=web-secure"
+            - "traefik.http.routers.traefik_dashboard_router.entrypoints=web-secure" # HTTPS EntryPoint must be declared in static conf
             - "traefik.http.routers.traefik_dashboard_router.tls=true"
-            - "traefik.http.routers.traefik_dashboard_router.tls.certresolver=letsencrypt"
+            - "traefik.http.routers.traefik_dashboard_router.tls.certresolver=letsencrypt" # CertResolver must be declared in static conf
         volumes:
-            - /var/run/docker.sock:/var/run/docker.sock:ro
-            - ./traefik.yml:/traefik.yml:ro
-            - /var/:/var/acme.json
-
+            - /var/run/docker.sock:/var/run/docker.sock:ro # Docker Socket
+            - ./traefik.yml:/traefik.yml:ro # Traefik static configuration
+            - /var/acme.json:/acme.json # TLS Certificates
 
 networks: 
     traefiknetwork:
