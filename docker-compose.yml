@@ -1,69 +1,91 @@
-# Docker Compose .yml version
-version: '3.7' # Requies Docker Engine version 18.06.0+
+version: "3.7" # Requies Docker Engine version 18.06.0+
 
 services:
-    # TTYD: Share Terminal over the Web (DANGEROUS! Requires authentication.)
-    ttyd:
-        container_name: ttyd
-        hostname: ttyd
-        image: tsl0922/ttyd:1.5.2-alpine # official, latest, fixed, lightweight
-        env_file: &env 
-            - config.env
-        restart: unless-stopped
-        depends_on: 
-            - traefik
-        networks: # Connection to Traefik
-            - traefiknetwork
-        expose: # Not public, only internal
-            - 7681
-        labels: # Traefik dynamic configuration
-            # Routing
-            - "traefik.enable=true"
-            - "traefik.http.services.ttyd_service.loadbalancer.server.port=7681"
-            - "traefik.http.routers.ttyd_router.service=ttyd_service"
-            - "traefik.http.routers.ttyd_router.rule=Host(`ttyd.aaps-hub.ml`)"
-            # Basic Auth
-            - "traefik.http.middlewares.ttyd_auth.basicauth.users=test:$$apr1$$ByKqrowX$$/qXsDKD4fsy7gvojaxbrU."
-            - "traefik.http.routers.ttyd_router.middlewares=ttyd_auth@docker"
-            # TLS (Enable HTTPS)
-            - "traefik.http.routers.ttyd_router.entrypoints=web-secure" # HTTPS EntryPoint must be declared in static conf
-            - "traefik.http.routers.ttyd_router.tls=true"
-            - "traefik.http.routers.ttyd_router.tls.certresolver=letsencrypt" # CertResolver must be declared in static conf
-        volumes:
-            - /etc/localtime:/etc/localtime:ro
+  # Traefik: Reverse Proxy
+  traefik:
+    container_name: traefik
+    hostname: traefik
+    image: traefik:2.1.1 # official, latest, fixed
+    env_file: &env
+      - config.env
+    networks:
+      - internal
+    ports: # Published ports (public)
+      - 80:80   # Default for HTTP
+      - 443:443 # Default for HTTPS
+    expose: # Not public (internal)
+      - 8080 # Default for Traefik Dashboard
+    labels: # Traefik dynamic configuration
+      - "traefik.enable=true"
+      - "traefik.http.services.traefik_dashboard.loadbalancer.server.port=8080"
+      # Redirect HTTP -> HTTPS
+      - "traefik.http.middlewares.https_redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.traefik_dashboard_insecure.entrypoints=insecure"
+      - "traefik.http.routers.traefik_dashboard_insecure.rule=Host(`traefik.aaps-hub.ml`)"
+      - "traefik.http.routers.traefik_dashboard_insecure.middlewares=https_redirect@docker"
+      # Routing HTTPS -> Service
+      - "traefik.http.routers.traefik_dashboard_secure.entrypoints=secure"
+      - "traefik.http.routers.traefik_dashboard_secure.rule=Host(`traefik.aaps-hub.ml`)"
+      - "traefik.http.routers.traefik_dashboard_secure.service=traefik_dashboard"
+      # TLS Certificates (Enable HTTPS)
+      - "traefik.http.routers.traefik_dashboard_secure.tls=true"
+      - "traefik.http.routers.traefik_dashboard_secure.tls.certresolver=letsencrypt"
+      # Basic Auth
+      - "traefik.http.middlewares.admin_auth.basicauth.users=test:$$apr1$$ByKqrowX$$/qXsDKD4fsy7gvojaxbrU." # htpasswd encoded
+      - "traefik.http.routers.traefik_dashboard_secure.middlewares=admin_auth@docker"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/acme.json:/acme.json
+      - /etc/localtime:/etc/localtime:ro
+    
+  # PostgreSQL: Relational database
+  postgres:
+    container_name: postgres
+    hostname: postgres
+    image: postgres:12.1-alpine # official, latest fixed, lightweight
+    env_file: *env
+    networks:
+      - internal
+    expose: # Not public (internal)
+      - 5432 # Default for PostgreSQL
+    # volumes:
+    #   - ./data:/var/lib/postgresql/data
+    labels:
+      - "traefik.enable=false"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
 
-    # Traefik: Docker-aware Reverse Proxy
-    traefik:
-        container_name: traefik
-        hostname: traefik
-        image: traefik:2.1.0 # official, V2, fixed
-        env_file: *env
-        restart: unless-stopped
-        networks: 
-            - traefiknetwork
-        ports: # Public ports (Standard for HTTP/HTTPS)
-            - 80:80
-            - 443:443
-        labels: # Traefik dynamic configuration
-            # Routing
-            - "traefik.enable=true"
-            - "traefik.http.services.traefik_dashboard_service.loadbalancer.server.port=8080"
-            - "traefik.http.routers.traefik_dashboard_router.service=traefik_dashboard_service"
-            - "traefik.http.routers.traefik_dashboard_router.rule=Host(`traefik.aaps-hub.ml`)"
-            # Basic Auth (htpasswd encoded)
-            - "traefik.http.middlewares.traefik_dashboard_auth.basicauth.users=test:$$apr1$$ByKqrowX$$/qXsDKD4fsy7gvojaxbrU."
-            - "traefik.http.routers.traefik_dashboard_router.middlewares=traefik_dashboard_auth@docker"
-            # TLS
-            - "traefik.http.routers.traefik_dashboard_router.entrypoints=web-secure" # HTTPS EntryPoint must be declared in static conf
-            - "traefik.http.routers.traefik_dashboard_router.tls=true"
-            - "traefik.http.routers.traefik_dashboard_router.tls.certresolver=letsencrypt" # CertResolver must be declared in static conf
-        volumes:
-            - /var/run/docker.sock:/var/run/docker.sock:ro # Docker Socket
-            - ./traefik.yml:/traefik.yml:ro # Traefik static configuration
-            - /var/acme.json:/acme.json # TLS Certificates
+  # Keycloak: Identity provider & Access Management
+  keycloak:
+    container_name: keycloak
+    hostname: keycloak
+    image: jboss/keycloak:8.0.1 # official, latest fixed
+    env_file: *env
+    depends_on: 
+      - traefik
+      - postgres
+    networks:
+      - internal
+    expose: # Not public (internal)
+      - 8080 # Default for secure Keycloak dashboard
+    labels: # Traefik dynamic configuration
+      - "traefik.enable=true"
+      - "traefik.http.services.keycloak_dashboard.loadbalancer.server.port=8080"
+      # Redirect HTTP -> HTTPS
+      - "traefik.http.routers.keycloak_dashboard_insecure.entrypoints=insecure"
+      - "traefik.http.routers.keycloak_dashboard_insecure.rule=Host(`keycloak.aaps-hub.ml`)"
+      - "traefik.http.routers.keycloak_dashboard_insecure.middlewares=https_redirect@docker"
+      # Routing HTTPS -> Service
+      - "traefik.http.routers.keycloak_dashboard_secure.entrypoints=secure"
+      - "traefik.http.routers.keycloak_dashboard_secure.rule=Host(`keycloak.aaps-hub.ml`)"
+      - "traefik.http.routers.keycloak_dashboard_secure.service=keycloak_dashboard"
+      # TLS Certificates (enable HTTPS)
+      - "traefik.http.routers.keycloak_dashboard_secure.tls=true"
+      - "traefik.http.routers.keycloak_dashboard_secure.tls.certresolver=letsencrypt"
+    command: ["-b", "0.0.0.0", "-Dkeycloak.profile.feature.docker=enabled"]
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
 
-networks: 
-    traefiknetwork:
-        driver: bridge
-
-
+networks:
+  internal:
+    driver: bridge
